@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Masking Demo - Canvas PoC</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 900px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .upload-section {
+            margin-bottom: 30px;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .upload-btn {
+            background: #667eea;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            border: none;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s;
+            display: inline-block;
+        }
+
+        .upload-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .canvas-container {
+            margin: 30px 0;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            display: none;
+            background: #f5f5f5;
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+            max-width: 100%;
+            cursor: crosshair;
+        }
+
+        .controls {
+            display: none;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .btn-auto {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-auto:hover {
+            background: #059669;
+        }
+
+        .btn-clear {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-clear:hover {
+            background: #d97706;
+        }
+
+        .btn-export {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-export:hover {
+            background: #2563eb;
+        }
+
+        .instructions {
+            background: #f0f9ff;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .instructions p {
+            color: #1e40af;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+
+        .mask-info {
+            color: #666;
+            font-size: 14px;
+            margin-top: 10px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 Image Masking Demo</h1>
+        <p class="subtitle">Canvas-based proof-of-concept for image upload, masking, and export</p>
+
+        <div class="upload-section">
+            <div class="file-input-wrapper">
+                <label for="imageUpload" class="upload-btn">
+                    📁 Upload Image
+                </label>
+                <input type="file" id="imageUpload" accept="image/*">
+            </div>
+        </div>
+
+        <div class="instructions" id="instructions">
+            <p><strong>Instructions:</strong></p>
+            <p>• Click and drag on the image to draw a masking rectangle</p>
+            <p>• Use "Auto Mask Eyes" for automatic eye region masking</p>
+            <p>• Clear and redraw as needed</p>
+            <p>• Export when satisfied with the mask</p>
+        </div>
+
+        <div class="canvas-container" id="canvasContainer">
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="controls" id="controls">
+            <button class="btn btn-auto" id="autoMaskBtn">Auto Mask Eyes</button>
+            <button class="btn btn-clear" id="clearBtn">Clear Mask</button>
+            <button class="btn btn-export" id="exportBtn">Export Masked Image</button>
+            <div class="mask-info" id="maskInfo"></div>
+        </div>
+    </div>
+
+    <script>
+        // Canvas and context
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // DOM elements
+        const imageUpload = document.getElementById('imageUpload');
+        const canvasContainer = document.getElementById('canvasContainer');
+        const controls = document.getElementById('controls');
+        const instructions = document.getElementById('instructions');
+        const autoMaskBtn = document.getElementById('autoMaskBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const maskInfo = document.getElementById('maskInfo');
+
+        // State
+        let uploadedImage = null;
+        let isDrawing = false;
+        let startX, startY;
+        let maskRect = null;
+
+        // Handle image upload
+        imageUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    uploadedImage = img;
+                    
+                    // Set canvas size to match image
+                    const maxWidth = 800;
+                    const scale = Math.min(1, maxWidth / img.width);
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+                    
+                    // Draw image
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    // Show canvas and controls
+                    canvasContainer.style.display = 'block';
+                    controls.style.display = 'flex';
+                    instructions.style.display = 'block';
+                    
+                    // Clear any previous mask
+                    maskRect = null;
+                    updateMaskInfo();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Manual masking - Mouse events
+        canvas.addEventListener('mousedown', function(e) {
+            const rect = canvas.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+            isDrawing = true;
+        });
+
+        canvas.addEventListener('mousemove', function(e) {
+            if (!isDrawing) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const currentX = e.clientX - rect.left;
+            const currentY = e.clientY - rect.top;
+            
+            // Redraw image
+            ctx.drawImage(uploadedImage, 0, 0, canvas.width, canvas.height);
+            
+            // Draw rectangle
+            const width = currentX - startX;
+            const height = currentY - startY;
+            
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(startX, startY, width, height);
+            
+            // Draw border
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(startX, startY, width, height);
+        });
+
+        canvas.addEventListener('mouseup', function(e) {
+            if (!isDrawing) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const endX = e.clientX - rect.left;
+            const endY = e.clientY - rect.top;
+            
+            maskRect = {
+                x: Math.min(startX, endX),
+                y: Math.min(startY, endY),
+                width: Math.abs(endX - startX),
+                height: Math.abs(endY - startY)
+            };
+            
+            isDrawing = false;
+            redrawWithMask();
+            updateMaskInfo();
+        });
+
+        // Auto mask eyes (simple heuristic - upper-middle portion of face)
+        autoMaskBtn.addEventListener('click', function() {
+            if (!uploadedImage) return;
+            
+            // Simple automatic mask - assumes face is centered
+            // Eyes typically in upper 30-50% of image, centered horizontally
+            const eyeRegionWidth = canvas.width * 0.6;
+            const eyeRegionHeight = canvas.height * 0.15;
+            const x = (canvas.width - eyeRegionWidth) / 2;
+            const y = canvas.height * 0.25;
+            
+            maskRect = {
+                x: x,
+                y: y,
+                width: eyeRegionWidth,
+                height: eyeRegionHeight
+            };
+            
+            redrawWithMask();
+            updateMaskInfo();
+        });
+
+        // Clear mask
+        clearBtn.addEventListener('click', function() {
+            if (!uploadedImage) return;
+            
+            maskRect = null;
+            ctx.drawImage(uploadedImage, 0, 0, canvas.width, canvas.height);
+            updateMaskInfo();
+        });
+
+        // Export masked image
+        exportBtn.addEventListener('click', function() {
+            if (!uploadedImage) return;
+            
+            // Create temporary canvas for export
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = canvas.width;
+            exportCanvas.height = canvas.height;
+            const exportCtx = exportCanvas.getContext('2d');
+            
+            // Draw image
+            exportCtx.drawImage(uploadedImage, 0, 0, canvas.width, canvas.height);
+            
+            // Draw mask if exists
+            if (maskRect) {
+                exportCtx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+                exportCtx.fillRect(maskRect.x, maskRect.y, maskRect.width, maskRect.height);
+            }
+            
+            // Export as PNG
+            exportCanvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'masked-image.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                maskInfo.textContent = '✓ Image exported successfully!';
+                setTimeout(() => updateMaskInfo(), 2000);
+            });
+        });
+
+        // Helper function to redraw with mask
+        function redrawWithMask() {
+            if (!uploadedImage) return;
+            
+            ctx.drawImage(uploadedImage, 0, 0, canvas.width, canvas.height);
+            
+            if (maskRect) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(maskRect.x, maskRect.y, maskRect.width, maskRect.height);
+                
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(maskRect.x, maskRect.y, maskRect.width, maskRect.height);
+            }
+        }
+
+        // Update mask info display
+        function updateMaskInfo() {
+            if (maskRect) {
+                maskInfo.textContent = `Mask applied: ${Math.round(maskRect.width)}×${Math.round(maskRect.height)}px`;
+            } else {
+                maskInfo.textContent = 'No mask applied';
+            }
+        }
+    </script>
+</body>
+</html>
